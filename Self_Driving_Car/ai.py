@@ -148,8 +148,35 @@ class Network(nn.Module):
         q_values = self.fc2(x)
         return q_values
 
+# Implementing Experience Replay
+class ReplayMemory(object):
+    # capacity : 몇개의 event 를 저장할지 나타냄
+    def __init__(self, capacity):
+        self.capacity = capacity
 
+        # event 가 저장될 list
+        self.memory = []
 
+    # memory 에 event를 집어넣는 함수
+    # event : [last state, new state, last action, last reword]
+    def push(self, event):
+        self.memory.append(event)
+
+        # 항상 size가 capacity 를 유지하게 만든다.
+        if len(self.memory) > self.capacity:
+            del self.memory[0]
+
+    # memory에서 랜덤으로 event를 고르는 함수
+    # batch_size : 한번의 batch 마다 주는 data size
+    def sample(self, batch_size):
+        # if list = ((1,2,3),(4,5,6)), then zip(*list) = ((1,4),(2,5),(3,6))
+        # 즉 같은 인덱스의 원소끼리 묶어 새로운 list를 생성해준다.
+        # input에 맞게 list를 형성한다.
+        samples = zip(*random.sample(self.memory, batch_size))
+
+        # 배열 내부의 원소들을 이어붙이기 위해 cat 을 사용한다.
+        # return : pytorch type의 variable 들
+        return map(lambda x: Variable(torch.cat(x, 0)), samples)
 
 
 
