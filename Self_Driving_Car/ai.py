@@ -112,12 +112,43 @@ import random
 # 운영체제에서 제공하는 기능들을 사용하기 위해 호출
 import os
 import torch
-import torch.nn
+import torch.nn as nn
 import torch.nn.functional as F
 import torch.optim as optim
 # 자동 미분 제공한다. 텐서에 관한 대부분의 연산을 지원한다.
 import torch.autograd as autograd
 from torch.autograd import Variable
+
+# creating the architecture of the Neural network
+
+# nn.Module을 상속받는다.
+class Network(nn.Module):
+
+    def __init__(self, input_size, nb_action):
+        # nn.Module을 사용하기 위한 트릭릭
+        super(Network, self).__init__()
+
+        # input size
+        self.input_size = input_size
+        # output size
+        self.nb_action = nb_action
+
+        # input layer와 hidden layer를 full connection 하게 해준다.
+        # full connection 이란 layer들 끼리 연결 하는 것이다.
+        self.fc1 = nn.Linear(input_size, 30)
+        # hidden layer와 ouput layer를 full connection 하게 해준다.
+        self.fc2 = nn.Linear(30, nb_action)
+
+    # input(state)에 기반하여 q-value들을 반환한다.
+    def forward(self, state):
+        # state를 input으로 주어 input-hidden 네트워크를 통과시킨다.
+        x = F.relu(self.fc1(state))
+
+        # q_value 들을 얻는다.
+        q_values = self.fc2(x)
+        return q_values
+
+
 
 
 
