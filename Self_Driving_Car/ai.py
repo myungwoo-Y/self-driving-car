@@ -125,7 +125,7 @@ from torch.autograd import Variable
 class Network(nn.Module):
 
     def __init__(self, input_size, nb_action):
-        # nn.Module을 사용하기 위한 트릭릭
+        # nn.Module을 사용하기 위한 트릭
         super(Network, self).__init__()
 
         # input size
@@ -179,8 +179,89 @@ class ReplayMemory(object):
         return map(lambda x: Variable(torch.cat(x, 0)), samples)
 
 
+# implementing Deep Q Learning
+
+class Dqn():
+
+    def __init__(self, input_size, nb_action, gamma):
+        self.gamma = gamma
+        self.reward_window = []
+        self.model = Network(input_size, nb_action)
+        self.memory = ReplayMemory(100000)
+
+        # 최적의 값을 찾는다. ex) 최솟값 or 최댓값
+        # 손실 함수의 값을 최소화 하는 파라미터의 값을 찾아준다.
+        self.optimizer = optim.Adam(self.model.parameters(), lr=0.001)
+
+        # batch 형식에 맞추기 위하여 tensor로 변환 후 fake demesion을 추가한다.
+        self.last_state = torch.Tensor(input_size).unsqueeze(0)
+
+        self.last_action = 0
+        self.last_reward = 0
+
+    def select_action(self, state):
+        # softmax([1,2,3]) = [0.04. 0.11, 0.85) => softmax([1,2,3]*3) = [0, 0.02, 0.98]
+        # T 만큼 곱해주면 곱하기 전과 비교하여 값들간의 차이가 많이 나기때문에
+        # 더 큰 수를 곱해 줄 수록 값이 낮은 q-value에 대해서 확률값은 더 작아지고
+        # 값이 큰 q-value 의 확률값은 커진다.
+        # 즉, q-value 간 확률값의 편차가 커진다.
+        props = F.softmax(self.model(Variable(state, volatile=True))*7) # T=7
+
+        # 확률에 맞게 action을 선탣한다.
+        action = props.multinomial()
+        return action.data[0, 0]
+
+    def learn(self, batch_state, batch_next_state, batch_reward, batch_action):
+        # state 와 같은 차원을 만들어 주기 위하여 batch_action.unsqueeze(1)
+        # squeeze(1)을 통하여 데이터를 간단하게 만들어 준다.
+        # prediction 이라고 할 수 있다.
+        outputs = self.model(batch_state).gather(1, batch_action.unsqueeze(1)).squeeze(1)
+
+        # 1은 action, 0은 state를 의미한다.
+        # 다음 state의 최대 q value를 의미한다.
+        next_outputs = self.model(batch_next_state).detach().max(1)[0]
+
+        target = self.gamma*next_outputs + batch_reward
+
+        td_loss = F.smooth_l1_loss(outputs, target)
+
+        # reinitialize
+        self.optimizer.zero_grad()
+        td_loss.backward(retain_variables = True)
+        self.optimizer.step()
 
 
+    def update(self, reward, new_signal):
+        # new_signal 은 state로서
+        # tensor를 이용하여 데이터를 간단하게 변화시킨다.
+        # 그 후 unsqueeze 를 이용해 새로운 차원을 생성한다.
+        new_state = torch.Tensor(new_signal).unsqueeze(0)
+
+        # Layer 에 들어가는 모든것들은 Tensor 화 한 뒤 넣어야 한다.
+        self.memory.push((self.last_state, new_state, torch.LongTensor([int(self.last_action)])), torch.Tensor(self.last_reward))
+
+        # 다음 state로 이동하는 action 선택
+        action = self.select_action(new_state)
+
+        # 메모리에 쌓인 데이터가 많으면 학습한다.
+        if len(self.memory.memory) > 100:
+            # 샘플 데이터를 가져온다.
+            # 그 후 새로 넣은 데이터 까지 포함하여 학습한다.
+            batch_state, batch_next_state, batch_reward, batch_action = self.memory.sample(100)
+            self.learn(batch_state, batch_next_state, batch_reward, batch_action)
+
+        # 학습 후 최근 상태 모두 업데이트
+        self.last_action = action
+        self.last_state = new_state
+        self.last_reward = reward
+        self.reward_window.append(reward)
+
+        # reward_window 길이 조절
+        if len(self.reward_window) > 1000:
+            del self.reward_window[0]
+
+
+        return action
 
 
 
