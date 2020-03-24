@@ -205,11 +205,21 @@ class Dqn():
         # 더 큰 수를 곱해 줄 수록 값이 낮은 q-value에 대해서 확률값은 더 작아지고
         # 값이 큰 q-value 의 확률값은 커진다.
         # 즉, q-value 간 확률값의 편차가 커진다.
-        props = F.softmax(self.model(Variable(state, volatile=True))*7) # T=7
+        probs = F.softmax(self.model(Variable(state, volatile=True))*100) # T=7
 
         # 확률에 맞게 action을 선탣한다.
-        action = props.multinomial()
+        action = probs.multinomial(1)
+
         return action.data[0, 0]
+
+    # def learn(self, batch_state, batch_next_state, batch_reward, batch_action):
+    #     outputs = self.model(batch_state).gather(1, batch_action.unsqueeze(1)).squeeze(1)
+    #     next_outputs = self.model(batch_next_state).detach().max(1)[0]
+    #     target = self.gamma*next_outputs + batch_reward
+    #     td_loss = F.smooth_l1_loss(outputs, target)
+    #     self.optimizer.zero_grad()
+    #     td_loss.backward(retain_graph=True)
+    #     self.optimizer.step()
 
     def learn(self, batch_state, batch_next_state, batch_reward, batch_action):
         # state 와 같은 차원을 만들어 주기 위하여 batch_action.unsqueeze(1)
@@ -227,18 +237,40 @@ class Dqn():
 
         # reinitialize
         self.optimizer.zero_grad()
-        td_loss.backward(retain_variables = True)
+        td_loss.backward(retain_graph=True)
         self.optimizer.step()
 
+    def update(self, reward, new_signal):
+        new_state = torch.Tensor(new_signal).float().unsqueeze(0)
+        self.memory.push((self.last_state, new_state, torch.LongTensor([int(self.last_action)]), torch.Tensor([self.last_reward])))
+        action = self.select_action(new_state)
+        if len(self.memory.memory) > 100:
+            batch_state, batch_next_state, batch_action, batch_reward = self.memory.sample(100)
+            self.learn(batch_state, batch_next_state, batch_reward, batch_action)
+        self.last_action = action
+        self.last_state = new_state
+        self.last_reward = reward
+        self.reward_window.append(reward)
+        if len(self.reward_window) > 1000:
+            del self.reward_window[0]
+        return action
+
+    def score(self):
+        return sum(self.reward_window)/(len(self.reward_window)+1.)
+
+    def save(self):
+        torch.save({'state_dict': self.model.state_dict(),
+                    'optimizer' : self.optimizer.state_dict(),
+                   }, 'last_brain.pth')
 
     def update(self, reward, new_signal):
         # new_signal 은 state로서
         # tensor를 이용하여 데이터를 간단하게 변화시킨다.
         # 그 후 unsqueeze 를 이용해 새로운 차원을 생성한다.
-        new_state = torch.Tensor(new_signal).unsqueeze(0)
+        new_state = torch.Tensor(new_signal).float().unsqueeze(0)
 
         # Layer 에 들어가는 모든것들은 Tensor 화 한 뒤 넣어야 한다.
-        self.memory.push((self.last_state, new_state, torch.LongTensor([int(self.last_action)])), torch.Tensor(self.last_reward))
+        self.memory.push((self.last_state, new_state, torch.LongTensor([int(self.last_action)]), torch.Tensor([self.last_reward])))
 
         # 다음 state로 이동하는 action 선택
         action = self.select_action(new_state)
@@ -247,7 +279,7 @@ class Dqn():
         if len(self.memory.memory) > 100:
             # 샘플 데이터를 가져온다.
             # 그 후 새로 넣은 데이터 까지 포함하여 학습한다.
-            batch_state, batch_next_state, batch_reward, batch_action = self.memory.sample(100)
+            batch_state, batch_next_state, batch_action, batch_reward = self.memory.sample(100)
             self.learn(batch_state, batch_next_state, batch_reward, batch_action)
 
         # 학습 후 최근 상태 모두 업데이트
@@ -260,14 +292,30 @@ class Dqn():
         if len(self.reward_window) > 1000:
             del self.reward_window[0]
 
-
         return action
 
+    # reward 의 평균을 알려준다.
+    def score(self):
+        return sum(self.reward_window)/(len(self.reward_window)+1.)
+
+    # 현재 모델을 저장한다.
+    def save(self):
+        # state 와 optimizer를 last_brain.pth 에 저장한다.
+        torch.save({'state_dict': self.model.state_dict(),
+                    'optimizer' : self.optimizer.state_dict(),
+                   }, 'last_brain.pth')
 
 
-
-
-
+    #model 과 optimizer load
+    def load(self):
+        if os.path.isfile('last_brain.pth'):
+            print("=> loading checkpoint...")
+            checkpoint = torch.load('last_brain.pth')
+            self.model.load_state_dict(checkpoint['state_dict'])
+            self.optimizer.load_state_dict(checkpoint['optimizer'])
+            print("done!")
+        else:
+            print("no checkpoint found ....")
 
 
 
